@@ -1,0 +1,138 @@
+# Название workflow
+name: parallel_workflow_testops
+
+# переменные окружения
+env:
+  ENDPOINT: https://demo.qatools.cloud/
+  PROJECT_ID: 283
+  TOKEN: ${{ secrets.TOKEN }}
+  ALLURE_JOB_RUN_ID: ${{ github.event.inputs.ALLURE_JOB_RUN_ID }}
+  ALLURE_RESULTS: "allure-results"
+  BROWSER: ${{ inputs.BROWSER || 'OperaGX' }}
+  OS: ${{ inputs.OS || 'Win_11' }}
+  BRANCH: ${{ github.ref_name }}
+  # два параметра, чтобы замедлить выполнение тестов
+  # LUCKY_SLEEP_MIN: 10
+  # LUCKY_SLEEP_MAX: 100
+
+# Триггеры для запуска workflow
+on:
+# по расписанию
+#  schedule:
+#    - cron: "0 0 * * *"
+
+# пуш и пулл реквест
+#  push:
+#    branches:
+#      - main
+#  pull_request:
+#    branches:
+#      - main
+
+# вручную
+  workflow_dispatch:
+    inputs:
+      BROWSER:
+        description: Browser
+        required: false
+        default: "OperaGX"
+      OS:
+        description: OS
+        required: false
+        default: "Win_11"
+      ALLURE_JOB_RUN_ID:
+        description: "ALLURE_JOB_RUN_ID - service parameter (leave blank)"
+        required: false
+        default: ""
+      ALLURE_USERNAME:
+        description: "ALLURE_USERNAME - service parameter (leave blank)"
+        required: false
+        default: ""
+
+jobs:
+  autotests:
+    name: Run tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      # подготовка окружения
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      # установка зависимостей
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # отладочные шаги, для проверки работы с переменными
+      - name: Debug environment variables
+        run: |
+          echo "ENDPOINT: $endpoint"
+          echo "PROJECT_ID: $project_id"
+        env:
+          allure_endpoint: ${{ env.ENDPOINT }}
+          allure_project_id: ${{ env.PROJECT_ID }}
+
+      # установка allurectl (связующее звено с ТестОпс)
+      - name: Install allurectl
+        uses: allure-framework/setup-allurectl@v1
+        with:
+          allure-endpoint: ${{ env.ENDPOINT }}
+          allure-token: ${{ env.TOKEN }}
+          allure-project-id: ${{ env.PROJECT_ID }}
+
+      # создаем директорию для результатов
+      - name: Ensure allure-results directory exists
+        run: |
+          mkdir -p ${ALLURE_RESULTS}
+
+      # создаем переменные запуска
+      - name: Create environment.properties
+        run: python create_environment_properties.py
+        env:
+          ALLURE_RESULTS: ${{ env.ALLURE_RESULTS }}
+          BROWSER: ${{ env.BROWSER }}
+          OS: ${{ env.OS }}
+          BRANCH: ${{ env.BRANCH }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+          ALLURE_JOB_RUN_ID: ${{ env.ALLURE_JOB_RUN_ID }}
+
+      # запускаем тесты и сразу следим за выполнением
+      # отправляем данные в ТестОпс по мере поступления
+      # -n auto автоматически запускает тесты во столько процессов сколько ядер в контейнере
+      # -n 4 запускает тесты в 4 процесса
+      - name: Run tests
+        run: allurectl watch -- pytest -n 4 --alluredir=${ALLURE_RESULTS} --capture=no
+        # специальные переменные окружения для allurectl
+        env:
+          ALLURE_LAUNCH_NAME: "Python Tests - ${{ github.run_id }}"
+          #ALLURE_LAUNCH_PARAMETERS: "build=${{ github.run_number }},branch=${{ github.ref_name }},commit=${{ github.sha }}"
+          ALLURE_ENDPOINT: ${{ env.ENDPOINT }}
+          ALLURE_TOKEN: ${{ env.TOKEN }}
+          ALLURE_PROJECT_ID: ${{ env.PROJECT_ID }}
+
+      # проверяем есть ли файлы с отчетами
+      - name: Check allure-results directory
+        if: always()
+        run: |
+          ls -la ${ALLURE_RESULTS}
+
+      # альтернативный вариант через upload
+      #- name: Upload results to Allure TestOps
+      #  env:
+      #    ALLURE_ENDPOINT: ${{ env.ENDPOINT }}
+      #    ALLURE_TOKEN: ${{ env.TOKEN }}
+      #  run: |
+      #    allurectl upload \
+      #      --project-id ${{ env.PROJECT_ID }} \
+      #      --launch-name "Python Tests - ${{ github.run_id }}" \
+      #      --launch-parameter build=${{ github.run_number }} \
+      #      --launch-parameter branch=${{ github.ref_name }} \
+      #      --launch-parameter commit=${{ github.sha }} \
+      #      --results ${ALLURE_RESULTS}
