@@ -2,7 +2,7 @@ import random
 import pytest
 import time
 
-def lucky_step(chance: float = 0.6) -> None:
+def lucky_step(chance: float = 0.05) -> None:
     """
     С вероятностью `chance` ломает тест.
     Возможные исходы с весами:
