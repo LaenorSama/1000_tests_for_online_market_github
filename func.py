@@ -56,8 +56,8 @@ def lucky_step(chance: float = 0.05) -> None:
             raise error_type(random.choice(broken_messages))
         elif outcome == "skipped":
             pytest.skip(random.choice(skipped_messages))
-        else:
-            pass
+    else:
+        pass
 
 def lucky_sleep(min_seconds: int = 10, max_seconds: int = 100) -> None:
     """
